@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: pickcloud-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pickcloud
+      POSTGRES_USER: pickcloud
+      POSTGRES_PASSWORD: pppc
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
