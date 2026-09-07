@@ -4,12 +4,12 @@
 -- así que no hay forma de distinguir una venta activa de una cancelada.
 -- Pídanle a Lucas que corra esto sobre la base ya creada:
 
-ALTER TABLE venta
-    ADD COLUMN estado VARCHAR(50) NOT NULL DEFAULT 'completada';
+--  ALTER TABLE venta
+--    ADD COLUMN estado VARCHAR(50) NOT NULL DEFAULT 'completada';
 
 -- (Opcional pero recomendado) restringir a los valores válidos:
-ALTER TABLE venta
-    ADD CONSTRAINT chk_venta_estado CHECK (estado IN ('completada', 'cancelada'));
+--  ALTER TABLE venta
+--    ADD CONSTRAINT chk_venta_estado CHECK (estado IN ('completada', 'cancelada'));
 
 -- venta_producto solo guarda `cantidad`, sin precio. Esto significa que si
 -- el precio de un producto cambia despues, el total historico de una venta
