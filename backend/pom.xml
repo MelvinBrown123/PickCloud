@@ -44,7 +44,7 @@
 		<dependency>
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>
-			<optional>true</optional>t
+			<optional>true</optional>
 		</dependency>
 
 		<dependency>
