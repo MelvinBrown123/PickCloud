@@ -7,10 +7,9 @@ import lombok.Setter;
 @Setter
 public class UserResponse {
 
-    private String id;
-    private String name;
-    private String email;
-    private String phone;
-    private String address;
-    private boolean active;
+    private Integer idUsuario;
+    private Integer idRol;
+    private String rol;
+    private String nombre;
+    private String correo;
 }

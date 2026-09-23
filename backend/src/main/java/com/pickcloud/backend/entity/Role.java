@@ -9,7 +9,7 @@ import lombok.Setter;
 @Getter
 @Setter
 
-public class Rol {
+public class Role {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "id_rol")

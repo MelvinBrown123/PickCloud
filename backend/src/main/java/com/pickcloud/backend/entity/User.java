@@ -17,7 +17,7 @@ public class User {
 
     @ManyToOne
     @JoinColumn(name = "id_rol", nullable = false)
-    private Rol rol;
+    private Role rol;
 
     @Column(name = "nombre", nullable = false, length = 150)
     private String nombre;

@@ -1,6 +1,6 @@
 package com.pickcloud.backend.controller;
 
-import com.pickcloud.backend.entity.User;
+import com.pickcloud.backend.dto.UserResponse;
 import com.pickcloud.backend.service.UserService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -11,12 +11,15 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/users")
 public class UserController {
+
     private final UserService userService;
-    public UserController(UserService userService){
+
+    public UserController(UserService userService) {
         this.userService = userService;
     }
+
     @GetMapping
-    public List<User> getUsers(){
+    public List<UserResponse> getUsers() {
         return userService.getUsers();
     }
 }
