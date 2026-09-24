@@ -3,6 +3,8 @@ package com.pickcloud.backend.entity;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+
+/** Represents a product category that belongs to a specific business. */
 @Entity
 @Table(
         name = "categoria",
@@ -25,6 +27,7 @@ public class Category {
     @Column(name = "descripcion", nullable = false, length = 150)
     private String descripcion;
 
+    // Multiple categories can belong to the same business.
     @ManyToOne
     @JoinColumn(name = "id_negocio", nullable = false)
     private Business negocio;

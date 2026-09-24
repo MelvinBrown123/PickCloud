@@ -4,11 +4,11 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 
+/** Represents a business registered in PickCloud. */
 @Entity
 @Table(name = "negocio")
 @Getter
 @Setter
-
 public class Business {
 
     @Id
@@ -16,6 +16,8 @@ public class Business {
     @Column(name = "id_negocio")
     private Integer idNegocio;
 
+    // Each business has one administrator and the database allows each administrator
+    // to own only one business through the unique id_usuario_admin foreign key.
     @OneToOne
     @JoinColumn(name = "id_usuario_admin", nullable = false, unique = true)
     private User administrador;

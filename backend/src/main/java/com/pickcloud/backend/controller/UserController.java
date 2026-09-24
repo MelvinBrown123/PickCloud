@@ -8,6 +8,12 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
+/**
+ * REST controller for user queries.
+ *
+ * UserResponse is returned instead of the User entity so sensitive fields,
+ * especially the password, are not exposed in the API response.
+ */
 @RestController
 @RequestMapping("/api/users")
 public class UserController {
@@ -18,6 +24,7 @@ public class UserController {
         this.userService = userService;
     }
 
+    /** Returns all users using the safe response representation defined by UserResponse. */
     @GetMapping
     public List<UserResponse> getUsers() {
         return userService.getUsers();
