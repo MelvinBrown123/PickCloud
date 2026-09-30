@@ -1,5 +1,9 @@
 package com.pickcloud.backend.service;
 
+import com.pickcloud.backend.dto.ProductUpdateRequest;
+import com.pickcloud.backend.exception.InvalidOperationException;
+import com.pickcloud.backend.exception.DuplicateResourceException;
+import com.pickcloud.backend.exception.ResourceNotFoundException;
 import com.pickcloud.backend.dto.ProductRequest;
 import com.pickcloud.backend.dto.ProductResponse;
 import com.pickcloud.backend.entity.Business;
@@ -9,12 +13,10 @@ import com.pickcloud.backend.repository.BusinessRepository;
 import com.pickcloud.backend.repository.CategoryRepository;
 import com.pickcloud.backend.repository.ProductRepository;
 import org.springframework.stereotype.Service;
-
 import java.util.List;
 
 /**
  * Contains the business logic for product operations.
- *
  * This layer coordinates repositories, validates relationships between domain
  * entities, persists products, and converts entities into response DTOs.
  */
@@ -24,7 +26,6 @@ public class ProductService {
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
     private final BusinessRepository businessRepository;
-
     public ProductService(
             ProductRepository productRepository,
             CategoryRepository categoryRepository,
@@ -44,15 +45,21 @@ public class ProductService {
         // findById returns Optional because the requested record may not exist.
         // orElseThrow stops product creation when the business ID is invalid.
         Business negocio = businessRepository.findById(request.getIdNegocio())
-                .orElseThrow(() -> new RuntimeException("Negocio no encontrado"));
+                .orElseThrow(() -> new ResourceNotFoundException("Negocio no encontrado"));
 
         Category categoria = categoryRepository.findById(request.getIdCategoria())
-                .orElseThrow(() -> new RuntimeException("Categoría no encontrada"));
+                .orElseThrow(() -> new ResourceNotFoundException("Categoría no encontrada"));
 
         // The database validates each foreign key independently, but that alone does
         // not guarantee that the category and product refer to the same business.
         if (!categoria.getNegocio().getIdNegocio().equals(negocio.getIdNegocio())) {
             throw new RuntimeException("La categoría no pertenece al negocio");
+        }
+
+        // Prevent duplicate SKUs within the same business.
+        if (productRepository.existsByNegocio_IdNegocioAndSku(
+                request.getIdNegocio(), request.getSku())) {
+            throw new DuplicateResourceException("El SKU ya existe en este negocio");
         }
 
         // Build the JPA entity from the data received in the request DTO.
@@ -88,9 +95,127 @@ public class ProductService {
     /** Retrieves one product by its primary key or stops if it does not exist. */
     public ProductResponse getProduct(Integer idProducto) {
         Product producto = productRepository.findById(idProducto)
-                .orElseThrow(() -> new RuntimeException("Producto no encontrado"));
+                .orElseThrow(() -> new ResourceNotFoundException("Producto no encontrado"));
 
         return toResponse(producto);
+    }
+
+    /**
+     * Updates an existing product after validating its business and category.
+     */
+    public ProductResponse updateProduct(Integer idProducto, ProductUpdateRequest request) {
+
+        Product producto = productRepository.findById(idProducto)
+                .orElseThrow(() -> new RuntimeException("Producto no encontrado"));
+
+        Business negocio = businessRepository.findById(request.getIdNegocio())
+                .orElseThrow(() -> new RuntimeException("Negocio no encontrado"));
+
+        Category categoria = categoryRepository.findById(request.getIdCategoria())
+                .orElseThrow(() -> new RuntimeException("Categoría no encontrada"));
+
+        // Prevent assigning a category that belongs to another business.
+        if (!categoria.getNegocio().getIdNegocio().equals(negocio.getIdNegocio())) {
+            throw new RuntimeException("La categoría no pertenece al negocio");
+        }
+
+        /*
+         * Validate the SKU only when it has changed.
+         * This allows a product to keep its current SKU during an update.
+         */
+        if (!producto.getSku().equals(request.getSku())
+                && productRepository.existsByNegocio_IdNegocioAndSku(
+                request.getIdNegocio(), request.getSku())) {
+            throw new RuntimeException("El SKU ya existe en este negocio");
+        }
+
+        producto.setNegocio(negocio);
+        producto.setCategoria(categoria);
+        producto.setNombre(request.getNombre());
+        producto.setDescripcion(request.getDescripcion());
+        producto.setPrecioCosto(request.getPrecioCosto());
+        producto.setPrecioVenta(request.getPrecioVenta());
+        producto.setSku(request.getSku());
+        producto.setActivo(request.getActivo());
+        producto.setUrlImagen(request.getUrlImagen());
+        producto.setDescuento(request.getDescuento());
+
+        Product productoActualizado = productRepository.save(producto);
+
+        return toResponse(productoActualizado);
+    }
+
+    /**
+     * Logically deactivates a product instead of deleting its database record.
+     * Keeping the record preserves historical references for future operations.
+     */
+    public ProductResponse deactivateProduct(Integer idProducto) {
+
+        Product producto = productRepository.findById(idProducto)
+                .orElseThrow(() -> new RuntimeException("Producto no encontrado"));
+
+        producto.setActivo(false);
+
+        Product productoDesactivado = productRepository.save(producto);
+
+        return toResponse(productoDesactivado);
+    }
+
+    /**
+     * Adds units to the current stock of a product.
+     *
+     * Stock is modified incrementally instead of replacing the current
+     * value, which allows inventory movements to be controlled explicitly.
+     */
+    public ProductResponse addStock(Integer idProducto, Integer cantidad) {
+
+        Product producto = productRepository.findById(idProducto)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Producto no encontrado"));
+
+        if (cantidad == null || cantidad <= 0) {
+            throw new InvalidOperationException(
+                    "La cantidad debe ser mayor a cero"
+            );
+        }
+
+        producto.setStockActual(
+                producto.getStockActual() + cantidad
+        );
+
+        Product productoActualizado = productRepository.save(producto);
+
+        return toResponse(productoActualizado);
+    }
+
+    /**
+     * Removes units from the current stock of a product.
+     * The operation is rejected when the requested quantity exceeds
+     * the available stock, preventing negative inventory values.
+     */
+    public ProductResponse removeStock(Integer idProducto, Integer cantidad) {
+
+        Product producto = productRepository.findById(idProducto)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Producto no encontrado"));
+
+        if (cantidad == null || cantidad <= 0) {
+            throw new InvalidOperationException(
+                    "La cantidad debe ser mayor a cero"
+            );
+        }
+
+        if (producto.getStockActual() < cantidad) {
+            throw new InvalidOperationException("Stock insuficiente");
+        }
+
+        producto.setStockActual(
+                producto.getStockActual() - cantidad
+        );
+
+        Product productoActualizado = productRepository.save(producto);
+
+        return toResponse(productoActualizado);
     }
 
     /**

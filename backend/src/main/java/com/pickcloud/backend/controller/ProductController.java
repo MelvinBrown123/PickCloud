@@ -1,5 +1,7 @@
 package com.pickcloud.backend.controller;
 
+import com.pickcloud.backend.dto.ProductUpdateRequest;
+import com.pickcloud.backend.dto.StockRequest;
 import com.pickcloud.backend.dto.ProductRequest;
 import com.pickcloud.backend.dto.ProductResponse;
 import com.pickcloud.backend.service.ProductService;
@@ -11,7 +13,6 @@ import java.util.List;
 
 /**
  * REST controller for product-related operations.
- *
  * The controller receives HTTP requests, delegates business logic to
  * {@link ProductService}, and returns DTOs instead of exposing JPA entities
  * directly through the API.
@@ -55,4 +56,62 @@ public class ProductController {
 
         return ResponseEntity.ok(productService.getProductsByBusiness(idNegocio));
     }
+
+    /**
+     * Updates an existing product.
+     */
+    @PutMapping("/{idProducto}")
+    public ResponseEntity<ProductResponse> updateProduct(
+            @PathVariable Integer idProducto,
+            @RequestBody ProductUpdateRequest request) {
+
+        return ResponseEntity.ok(
+                productService.updateProduct(idProducto, request)
+        );
+    }
+
+    /**
+     * Logically deactivates a product without removing it from the database.
+     */
+    @PatchMapping("/{idProducto}/deactivate")
+    public ResponseEntity<ProductResponse> deactivateProduct(
+            @PathVariable Integer idProducto) {
+
+        return ResponseEntity.ok(
+                productService.deactivateProduct(idProducto)
+        );
+    }
+
+    /**
+     * Adds units to the stock of an existing product.
+     */
+    @PatchMapping("/{idProducto}/stock/add")
+    public ResponseEntity<ProductResponse> addStock(
+            @PathVariable Integer idProducto,
+            @RequestBody StockRequest request) {
+
+        return ResponseEntity.ok(
+                productService.addStock(
+                        idProducto,
+                        request.getCantidad()
+                )
+        );
+    }
+
+    /**
+     * Removes units from the stock of an existing product.
+     */
+    @PatchMapping("/{idProducto}/stock/remove")
+    public ResponseEntity<ProductResponse> removeStock(
+            @PathVariable Integer idProducto,
+            @RequestBody StockRequest request) {
+
+        return ResponseEntity.ok(
+                productService.removeStock(
+                        idProducto,
+                        request.getCantidad()
+                )
+        );
+    }
+
 }
