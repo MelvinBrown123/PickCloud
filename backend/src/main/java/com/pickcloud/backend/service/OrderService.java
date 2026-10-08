@@ -17,9 +17,10 @@ import java.util.List;
 
 /**
  * Contains the business logic for Pickup orders.
- * Order creation is transactional because creating the order, registering
- * its products, calculating totals, and reserving stock must succeed as
- * one complete operation.
+ *
+ * Order creation is transactional because creating the order,
+ * registering its products, calculating totals, and reserving stock
+ * must succeed as one complete operation.
  */
 @Service
 public class OrderService {
@@ -49,10 +50,13 @@ public class OrderService {
 
     /**
      * Creates a Pickup order and reserves the requested inventory.
-
+     *
      * Prices are obtained directly from the database to prevent clients
      * from manipulating monetary values through the request.
-
+     *
+     * Physical stock is not deducted when the order is created.
+     * Reserved units are calculated from active Pickup orders.
+     *
      * @Transactional guarantees that if any validation or database operation
      * fails, all changes performed during this method are rolled back.
      */
@@ -78,6 +82,31 @@ public class OrderService {
             );
         }
 
+        // Get the current date and the requested pickup date.
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime pickupDate = request.getFechaRecoleccion();
+
+        // Validate that the pickup date is required.
+        if (pickupDate == null) {
+            throw new InvalidOperationException(
+                    "La fecha de recolección es obligatoria"
+            );
+        }
+
+        // Validate that the pickup date is in the future.
+        if (!pickupDate.isAfter(now)) {
+            throw new InvalidOperationException(
+                    "La fecha de recolección debe ser futura"
+            );
+        }
+
+        // Validate that pickup is scheduled for today.
+        if (!pickupDate.toLocalDate().equals(now.toLocalDate())) {
+            throw new InvalidOperationException(
+                    "La recolección debe programarse para el mismo día"
+            );
+        }
+
         /*
          * The order is initially created with a zero total.
          * The final amount is calculated from the products stored in PostgreSQL.
@@ -86,7 +115,7 @@ public class OrderService {
         pedido.setUsuario(usuario);
         pedido.setNegocio(negocio);
         pedido.setMetodoPago(metodoPago);
-        pedido.setEstado("pendiente");
+        pedido.setEstado(OrderStatus.PENDIENTE.getValue());
         pedido.setFechaCreacion(LocalDateTime.now());
         pedido.setFechaRecoleccion(request.getFechaRecoleccion());
         pedido.setTotal(BigDecimal.ZERO);
@@ -126,14 +155,18 @@ public class OrderService {
             }
 
             /*
-             * Stock is validated before reserving the requested units.
-             * The transaction will roll back previous changes if any later
-             * product fails validation.
+             * Available stock is calculated by subtracting the units reserved
+             * by active Pickup orders from the physical stock.
              */
-            if (producto.getStockActual() < item.getCantidad()) {
+            Long stockReservado = orderProductRepository
+                    .getReservedStockByProduct(producto.getIdProducto());
+
+            int stockDisponible =
+                    producto.getStockActual() - stockReservado.intValue();
+
+            if (stockDisponible < item.getCantidad()) {
                 throw new InvalidOperationException(
-                        "Stock insuficiente para el producto: "
-                                + producto.getNombre()
+                        "Stock insuficiente. Disponible: " + stockDisponible
                 );
             }
 
@@ -150,17 +183,11 @@ public class OrderService {
             pedidoProducto.setPrecioUnitario(precioUnitario);
             pedidoProducto.setSubtotal(subtotal);
 
-            orderProductRepository.save(pedidoProducto);
-
             /*
-             * Reserving inventory prevents the same units from being sold
-             * while this Pickup order is pending.
+             * Saving the order-product relationship represents the reservation.
+             * Physical stock remains unchanged at this point.
              */
-            producto.setStockActual(
-                    producto.getStockActual() - item.getCantidad()
-            );
-
-            productRepository.save(producto);
+            orderProductRepository.save(pedidoProducto);
 
             total = total.add(subtotal);
         }
@@ -172,10 +199,10 @@ public class OrderService {
     }
 
     /**
-     * Cancels a pending order and releases all inventory reserved by it.
-
-     * The operation is transactional to ensure that both the order status
-     * and all stock quantities are updated as one atomic operation.
+     * Cancels a pending order and releases its stock reservation.
+     *
+     * Physical stock is not modified because the reservation is represented
+     * by the quantities associated with active Pickup orders.
      */
     @Transactional
     public OrderResponse cancelOrder(Integer idPedido) {
@@ -184,34 +211,19 @@ public class OrderService {
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Pedido no encontrado"));
 
-        /*
-         * Only pending orders can be cancelled.
-         * This prevents inventory from being restored multiple times.
-         */
-        if (!"pendiente".equalsIgnoreCase(pedido.getEstado())) {
-            throw new InvalidOperationException("Solo se pueden cancelar pedidos pendientes");
-        }
+        if (!OrderStatus.PENDIENTE.getValue()
+                .equalsIgnoreCase(pedido.getEstado())) {
 
-        List<OrderProduct> productosPedido =
-                orderProductRepository.findByPedido_IdPedido(idPedido);
-
-        /*
-         * Release every quantity previously reserved when the order
-         * was created.
-         */
-        for (OrderProduct pedidoProducto : productosPedido) {
-
-            Product producto = pedidoProducto.getProducto();
-
-            producto.setStockActual(
-                    producto.getStockActual()
-                            + pedidoProducto.getCantidad()
+            throw new InvalidOperationException(
+                    "Solo se pueden cancelar pedidos pendientes"
             );
-
-            productRepository.save(producto);
         }
 
-        pedido.setEstado("cancelado");
+        /*
+         * Changing the status to cancelled automatically releases the
+         * reservation because cancelled orders are not counted as reserved stock.
+         */
+        pedido.setEstado(OrderStatus.CANCELADO.getValue());
 
         pedido = orderRepository.save(pedido);
 
@@ -234,37 +246,6 @@ public class OrderService {
     }
 
     /**
-     * Marks a pending Pickup order as delivered.
-
-     * Inventory is not modified because the requested units were already
-     * reserved when the order was created.
-     */
-    @Transactional
-    public OrderResponse deliverOrder(Integer idPedido) {
-
-        Order pedido = orderRepository.findById(idPedido)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Pedido no encontrado"));
-
-        /*
-         * Only pending orders can be delivered.
-         * Cancelled or previously delivered orders cannot transition
-         * to the delivered state.
-         */
-        if (!"pendiente".equalsIgnoreCase(pedido.getEstado())) {
-            throw new InvalidOperationException(
-                    "Solo se pueden entregar pedidos pendientes"
-            );
-        }
-
-        pedido.setEstado("entregado");
-
-        pedido = orderRepository.save(pedido);
-
-        return toResponse(pedido);
-    }
-
-    /**
      * Retrieves an order by its identifier.
      *
      * The response includes the order information and all products
@@ -277,6 +258,166 @@ public class OrderService {
                         new ResourceNotFoundException("Pedido no encontrado"));
 
         return toResponse(pedido);
+    }
+
+    /**
+     * Confirms the online payment of a pending order.
+     *
+     * Online payments are processed through the configured payment gateway.
+     * Once payment is confirmed, reserved units become a definitive
+     * inventory deduction.
+     */
+    @Transactional
+    public OrderResponse payOrder(Integer idPedido) {
+
+        Order pedido = orderRepository.findById(idPedido)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Pedido no encontrado"));
+
+        if (!OrderStatus.PENDIENTE.getValue()
+                .equalsIgnoreCase(pedido.getEstado())) {
+
+            throw new InvalidOperationException(
+                    "Solo se pueden pagar pedidos pendientes"
+            );
+        }
+
+        if (!"PAGO_EN_LINEA".equalsIgnoreCase(
+                pedido.getMetodoPago().getDescripcion())) {
+
+            throw new InvalidOperationException(
+                    "Este pedido no utiliza pago en línea"
+            );
+        }
+
+        /*
+         * Online payment converts the temporary reservation into a
+         * definitive inventory deduction.
+         */
+        deductOrderStock(pedido);
+
+        pedido.setEstado(OrderStatus.PAGADO.getValue());
+
+        pedido = orderRepository.save(pedido);
+
+        return toResponse(pedido);
+    }
+
+
+    /**
+     * Marks an order as ready for pickup.
+     *
+     * Online orders must already be paid.
+     * Orders paid at the store can transition directly from pending to ready.
+     */
+    @Transactional
+    public OrderResponse readyOrder(Integer idPedido) {
+
+        Order pedido = orderRepository.findById(idPedido)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Pedido no encontrado"));
+
+        boolean pagoEnLinea = "PAGO_EN_LINEA".equalsIgnoreCase(
+                pedido.getMetodoPago().getDescripcion()
+        );
+
+        if (pagoEnLinea) {
+
+            if (!OrderStatus.PAGADO.getValue()
+                    .equalsIgnoreCase(pedido.getEstado())) {
+
+                throw new InvalidOperationException(
+                        "Los pedidos con pago en línea deben estar pagados antes de prepararse"
+                );
+            }
+
+        } else {
+
+            if (!OrderStatus.PENDIENTE.getValue()
+                    .equalsIgnoreCase(pedido.getEstado())) {
+
+                throw new InvalidOperationException(
+                        "Solo se pueden preparar pedidos pendientes"
+                );
+            }
+        }
+
+        pedido.setEstado(OrderStatus.LISTO.getValue());
+
+        pedido = orderRepository.save(pedido);
+
+        return toResponse(pedido);
+    }
+
+    /**
+     * Marks an order that is ready for pickup as delivered.
+     *
+     * For orders paid at the store, inventory is definitively deducted
+     * when the order is delivered. Online orders were already deducted
+     * when their payment was confirmed.
+     */
+    @Transactional
+    public OrderResponse deliverOrder(Integer idPedido) {
+
+        Order pedido = orderRepository.findById(idPedido)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Pedido no encontrado"));
+
+        if (!OrderStatus.LISTO.getValue()
+                .equalsIgnoreCase(pedido.getEstado())) {
+
+            throw new InvalidOperationException(
+                    "Solo se pueden entregar pedidos listos"
+            );
+        }
+
+        boolean pagoEnLinea = "PAGO_EN_LINEA".equalsIgnoreCase(
+                pedido.getMetodoPago().getDescripcion()
+        );
+
+        /*
+         * Store payments keep their stock reserved until delivery.
+         * Online payments were already deducted when payment was confirmed.
+         */
+        if (!pagoEnLinea) {
+            deductOrderStock(pedido);
+        }
+
+        pedido.setEstado(OrderStatus.ENTREGADO.getValue());
+
+        pedido = orderRepository.save(pedido);
+
+        return toResponse(pedido);
+    }
+
+    /**
+     * Definitively deducts the products associated with an order
+     * from the physical inventory.
+     */
+    private void deductOrderStock(Order pedido) {
+
+        List<OrderProduct> productosPedido =
+                orderProductRepository.findByPedido_IdPedido(
+                        pedido.getIdPedido()
+                );
+
+        for (OrderProduct pedidoProducto : productosPedido) {
+
+            Product producto = pedidoProducto.getProducto();
+
+            if (producto.getStockActual() < pedidoProducto.getCantidad()) {
+                throw new InvalidOperationException(
+                        "Stock físico insuficiente para completar el pedido"
+                );
+            }
+
+            producto.setStockActual(
+                    producto.getStockActual()
+                            - pedidoProducto.getCantidad()
+            );
+
+            productRepository.save(producto);
+        }
     }
 
     /**

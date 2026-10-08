@@ -82,4 +82,28 @@ public class OrderController {
                 orderService.getOrder(idPedido)
         );
     }
+
+    /**
+     * Marks an order as paid.
+     */
+    @PatchMapping("/{idPedido}/pay")
+    public ResponseEntity<OrderResponse> payOrder(
+            @PathVariable Integer idPedido) {
+
+        return ResponseEntity.ok(
+                orderService.payOrder(idPedido)
+        );
+    }
+
+    /**
+     * Marks an order as ready for pickup.
+     */
+    @PatchMapping("/{idPedido}/ready")
+    public ResponseEntity<OrderResponse> readyOrder(
+            @PathVariable Integer idPedido) {
+
+        return ResponseEntity.ok(
+                orderService.readyOrder(idPedido)
+        );
+    }
 }
